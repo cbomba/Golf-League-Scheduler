@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Golf League Scheduler</title>
+
+<style>
+
+body{
+    font-family:Arial;
+    margin:40px;
+}
+
+.container{
+    display:flex;
+    gap:40px;
+}
+
+.left{
+    flex:3;
+}
+
+.right{
+    flex:1;
+}
+
+table{
+    border-collapse:collapse;
+    margin-top:20px;
+}
+
+th,td{
+    border:1px solid #ccc;
+    padding:6px 10px;
+    text-align:center;
+}
+
+textarea{
+    width:100%;
+    height:200px;
+}
+
+#playerTools{
+    display:none;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h2>Golf League Scheduler</h2>
+
+<div>
+
+<label>
+<input type="checkbox" id="menEnabled"> Men
+</label>
+
+<input id="menCount" type="number" min="0" value="16">
+
+<br><br>
+
+<label>
+<input type="checkbox" id="womenEnabled"> Women
+</label>
+
+<input id="womenCount" type="number" min="0" value="8">
+
+<br><br>
+
+Start Time
+
+<select id="startTime">
+<option value="16:28">4:28</option>
+<option value="16:36">4:36</option>
+<option value="16:44">4:44</option>
+<option value="16:52">4:52</option>
+<option value="17:00">5:00</option>
+<option value="17:08">5:08</option>
+</select>
+
+End Time
+
+<select id="endTime">
+<option value="17:08">5:08</option>
+<option value="17:16">5:16</option>
+<option value="17:24">5:24</option>
+<option value="17:32">5:32</option>
+<option value="17:40">5:40</option>
+</select>
+
+<br><br>
+
+Placement
+
+<select id="placement">
+<option value="mixed_alternating">Mixed Alternating</option>
+<option value="women_first">Women First</option>
+<option value="women_last">Women Last</option>
+<option value="mixed_front_back">Mixed Front Back</option>
+<option value="split_middle">Split Middle</option>
+</select>
+
+<br><br>
+
+<button onclick="generate()">Generate Schedule</button>
+
+</div>
+
+
+<div class="container">
+
+<div class="left">
+
+<div id="schedule"></div>
+
+</div>
+
+
+<div class="right" id="playerTools">
+
+<h3>Paste Player Names</h3>
+
+<p>Paste one name per line</p>
+
+Men
+
+<textarea id="menNamesBox"></textarea>
+
+Women
+
+<textarea id="womenNamesBox"></textarea>
+
+<br><br>
+
+<button onclick="loadNames()">Load Names</button>
+
+<hr>
+
+<h3>Player Lookup</h3>
+
+<select id="playerSelect"></select>
+
+<button onclick="lookupPlayer()">Show Schedule</button>
+
+<div id="playerResult"></div>
+
+</div>
+
+</div>
+
+
+<script>
+
+let currentSchedule=null
+let playerNames={}
+
+
+async function generate(){
+
+const menEnabled=document.getElementById("menEnabled").checked
+const womenEnabled=document.getElementById("womenEnabled").checked
+
+const menCount=parseInt(document.getElementById("menCount").value)||0
+const womenCount=parseInt(document.getElementById("womenCount").value)||0
+
+const startTime=document.getElementById("startTime").value
+const endTime=document.getElementById("endTime").value
+const placement=document.getElementById("placement").value
+
+const response=await fetch("/generate",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+menEnabled,
+womenEnabled,
+menCount,
+womenCount,
+startTime,
+endTime,
+placement
+})
+})
+
+const data=await response.json()
+
+if(data.error){
+alert(data.error)
+return
+}
+
+currentSchedule=data.season
+
+document.getElementById("playerTools").style.display="block"
+
+renderSchedule(currentSchedule)
+
+}
+
+
+function renderSchedule(season){
+
+let html=""
+
+season.forEach(week=>{
+
+html+=`<table>`
+
+html+=`<tr><th>Date</th>`
+
+week.slots.forEach(slot=>{
+html+=`<th>${slot.time}</th>`
+})
+
+html+=`</tr>`
+
+html+=`<tr><td>${week.play_date}</td>`
+
+week.slots.forEach(slot=>{
+html+=`<td>${slot.display}</td>`
+})
+
+html+=`</tr>`
+
+html+=`</table>`
+
+})
+
+document.getElementById("schedule").innerHTML=html
+
+}
+
+
+function loadNames(){
+
+const menText=document.getElementById("menNamesBox").value.trim()
+const womenText=document.getElementById("womenNamesBox").value.trim()
+
+const menNames=menText.split("\n").map(x=>x.trim()).filter(x=>x)
+const womenNames=womenText.split("\n").map(x=>x.trim()).filter(x=>x)
+
+playerNames={}
+
+menNames.forEach((name,i)=>{
+playerNames[(i+1).toString()]=name
+})
+
+womenNames.forEach((name,i)=>{
+playerNames[String.fromCharCode(65+i)]=name
+})
+
+populatePlayerDropdown()
+
+}
+
+
+function populatePlayerDropdown(){
+
+const select=document.getElementById("playerSelect")
+select.innerHTML=""
+
+Object.keys(playerNames).forEach(key=>{
+
+const opt=document.createElement("option")
+
+opt.value=key
+opt.textContent=playerNames[key]
+
+select.appendChild(opt)
+
+})
+
+}
+
+
+function lookupPlayer(){
+
+const player=document.getElementById("playerSelect").value
+
+let html="<table>"
+
+html+="<tr><th>Week</th><th>Date</th><th>Partner</th><th>Foursome</th></tr>"
+
+currentSchedule.forEach(week=>{
+
+week.slots.forEach(slot=>{
+
+if(slot.group.includes(player)){
+
+const others=slot.group.filter(p=>p!==player)
+
+const partner=others[0]
+const foursome=others.join(", ")
+
+html+=`
+<tr>
+<td>${week.week_num}</td>
+<td>${week.play_date}</td>
+<td>${playerNames[partner]||partner}</td>
+<td>${others.map(p=>playerNames[p]||p).join(", ")}</td>
+</tr>
+`
+
+}
+
+})
+
+})
+
+html+="</table>"
+
+document.getElementById("playerResult").innerHTML=html
+
+}
+
+</script>
+
+
+</body>
+</html>
