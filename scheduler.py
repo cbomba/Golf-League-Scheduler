@@ -6,6 +6,7 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
+from datetime import datetime
 from itertools import combinations
 from pathlib import Path
 from typing import DefaultDict, Dict, Iterable, List, Literal, Sequence, Tuple
@@ -29,15 +30,50 @@ class WeekSchedule:
     slots: List[Dict[str, object]]
 
 
-TEE_TIMES = ["4:28", "4:36", "4:44", "4:52", "5:00", "5:08"]
+def generate_tee_times(start_time_str: str, group_count: int, interval: int = 8) -> List[str]:
+    """
+    Generates tee times based on number of groups.
+
+    Example:
+    start_time = 4:28
+    group_count = 6
+
+    → 4:28
+    → 4:36
+    → 4:44
+    → 4:52
+    → 5:00
+    → 5:08
+    """
+
+    start = datetime.strptime(start_time_str, "%H:%M")
+
+    times = []
+
+    for i in range(group_count):
+        t = start + timedelta(minutes=i * interval)
+        times.append(t.strftime("%-I:%M"))
+
+    return times
 
 
-def daterange_wednesdays(start_date: date, end_date: date) -> List[date]:
-    dates: List[date] = []
+def generate_play_dates(start_date: date, end_date: date, weekdays: List[int]) -> List[date]:
+    """
+    Generate play dates between start and end date for selected weekdays.
+
+    Weekday values:
+    Monday=0 ... Sunday=6
+    """
+
+    dates = []
     current = start_date
+
     while current <= end_date:
-        dates.append(current)
-        current += timedelta(days=7)
+        if current.weekday() in weekdays:
+            dates.append(current)
+
+        current += timedelta(days=1)
+
     return dates
 
 
@@ -57,6 +93,49 @@ def all_expected_pairs(players: Sequence[Player]) -> List[Pair]:
     return [normalize_pair(a, b) for a, b in combinations(players, 2)]
 
 
+def group_sizes_for_count(count: int) -> List[int]:
+    """
+    Build a division using groups of 4 where possible, and 3-somes when needed.
+
+    Rules:
+    - Prefer 4-somes
+    - If remainder is 2, use two 3-somes instead of a 4-some + 2-some
+    - If remainder is 3, use one 3-some
+    - If remainder is 1, use three 3-somes (e.g. 13 = 4+3+3+3)
+
+    Impossible counts with only 3s and 4s:
+    - 1, 2, 5
+    """
+    if count == 0:
+        return []
+
+    if count in {1, 2, 5}:
+        raise ValueError(
+            f"{count} players in one division cannot be arranged using only 3-somes and 4-somes."
+        )
+
+    remainder = count % 4
+
+    if remainder == 0:
+        return [4] * (count // 4)
+
+    if remainder == 2:
+        # e.g. 6 => 3+3, 10 => 4+3+3, 14 => 4+4+3+3
+        return [4] * ((count - 6) // 4) + [3, 3]
+
+    if remainder == 3:
+        # e.g. 7 => 4+3, 11 => 4+4+3
+        return [4] * ((count - 3) // 4) + [3]
+
+    # remainder == 1
+    # e.g. 9 => 3+3+3, 13 => 4+3+3+3
+    if count < 9:
+        raise ValueError(
+            f"{count} players in one division cannot be arranged using only 3-somes and 4-somes."
+        )
+    return [4] * ((count - 9) // 4) + [3, 3, 3]
+
+
 def score_group(
     group: Sequence[Player],
     pair_counts: Dict[Pair, int],
@@ -65,11 +144,9 @@ def score_group(
 ) -> int:
     """
     Lower score is better.
-    Strongly rewards unseen pairs.
-    Penalizes repeated pairs and repeated exact foursomes.
+    Rewards unseen pairs and penalizes repeated pairs / repeated exact groups.
     """
     score = 0
-
     unseen_pairs = 0
     repeated_pair_penalty = 0
 
@@ -82,7 +159,6 @@ def score_group(
     sig = group_signature(group)
     exact_group_repeat_penalty = group_counts.get(sig, 0) * 150
 
-    # Reward unseen pairs heavily by subtracting points
     score += repeated_pair_penalty
     score += exact_group_repeat_penalty
     score -= unseen_pairs * 200
@@ -95,45 +171,43 @@ def score_teetime_assignment(
     group: Sequence[Player],
     tee_time_counts: Dict[Player, Dict[str, int]],
 ) -> int:
-    """
-    Lower score is better.
-    Penalizes putting people in tee times they have already used a lot.
-    """
     score = 0
     for player in group:
         score += tee_time_counts[player].get(time_str, 0) * 20
-
-    # Slight bias for overall spread between earliest/latest over time
     return score
 
 
 def generate_candidate_partition(
     players: Sequence[Player],
-    group_count: int,
-    group_size: int,
+    group_sizes: Sequence[int],
 ) -> List[Group]:
     shuffled = list(players)
     random.shuffle(shuffled)
-    return [
-        shuffled[i * group_size : (i + 1) * group_size]
-        for i in range(group_count)
-    ]
+
+    groups: List[Group] = []
+    idx = 0
+    for size in group_sizes:
+        groups.append(shuffled[idx : idx + size])
+        idx += size
+    return groups
 
 
 def optimize_groups(
     players: Sequence[Player],
-    group_count: int,
-    group_size: int,
+    group_sizes: Sequence[int],
     pair_counts: Dict[Pair, int],
     group_counts: Dict[Tuple[Player, ...], int],
     expected_pairs_set: set[Pair],
     tries: int,
 ) -> List[Group]:
+    if not players:
+        return []
+
     best_groups: List[Group] | None = None
     best_score: int | None = None
 
     for _ in range(tries):
-        groups = generate_candidate_partition(players, group_count, group_size)
+        groups = generate_candidate_partition(players, group_sizes)
         total_score = sum(
             score_group(g, pair_counts, group_counts, expected_pairs_set)
             for g in groups
@@ -149,14 +223,49 @@ def optimize_groups(
     return best_groups
 
 
+def interleave_groups(
+    men_groups: List[Group],
+    women_groups: List[Group],
+) -> List[Tuple[str, Group]]:
+    """
+    Alternate groups as much as possible, starting with whichever division
+    currently has more groups. If tied, start with men.
+    """
+    men_queue = list(men_groups)
+    women_queue = list(women_groups)
+
+    if len(men_queue) >= len(women_queue):
+        turn = "men"
+    else:
+        turn = "women"
+
+    ordered: List[Tuple[str, Group]] = []
+
+    while men_queue or women_queue:
+        if turn == "men":
+            if men_queue:
+                ordered.append(("men", men_queue.pop(0)))
+            turn = "women"
+            if not women_queue and men_queue:
+                turn = "men"
+        else:
+            if women_queue:
+                ordered.append(("women", women_queue.pop(0)))
+            turn = "men"
+            if not men_queue and women_queue:
+                turn = "women"
+
+    return ordered
+
+
 def order_groups_by_mode(
     men_groups: List[Group],
     women_groups: List[Group],
     placement_mode: PlacementMode,
+    week_num: int,
 ) -> List[Tuple[str, Group]]:
     """
-    Returns list of (division, group) in slot order before tee-time fairness assignment.
-    division = 'men' or 'women'
+    Generic placement for any number of men/women groups.
     """
     if placement_mode == "women_first":
         return [("women", g) for g in women_groups] + [("men", g) for g in men_groups]
@@ -164,40 +273,15 @@ def order_groups_by_mode(
     if placement_mode == "women_last":
         return [("men", g) for g in men_groups] + [("women", g) for g in women_groups]
 
-    if placement_mode == "mixed_alternating":
-        # women in positions 1 and 3
-        ordered: List[Tuple[str, Group]] = []
-        ordered.append(("men", men_groups[0]))
-        ordered.append(("women", women_groups[0]))
-        ordered.append(("men", men_groups[1]))
-        ordered.append(("women", women_groups[1]))
-        ordered.append(("men", men_groups[2]))
-        ordered.append(("men", men_groups[3]))
-        return ordered
+    # Treat all mixed styles as alternating for flexible group counts.
+    ordered = interleave_groups(men_groups, women_groups)
 
-    if placement_mode == "mixed_front_back":
-        # women in 2 and 5
-        return [
-            ("men", men_groups[0]),
-            ("women", women_groups[0]),
-            ("men", men_groups[1]),
-            ("men", men_groups[2]),
-            ("women", women_groups[1]),
-            ("men", men_groups[3]),
-        ]
+    # Rotate weekly so women are not stuck in the same slots.
+    if ordered:
+        shift = (week_num - 1) % len(ordered)
+        ordered = ordered[shift:] + ordered[:shift]
 
-    if placement_mode == "split_middle":
-        # women in the middle
-        return [
-            ("men", men_groups[0]),
-            ("men", men_groups[1]),
-            ("women", women_groups[0]),
-            ("women", women_groups[1]),
-            ("men", men_groups[2]),
-            ("men", men_groups[3]),
-        ]
-
-    raise ValueError(f"Unsupported placement mode: {placement_mode}")
+    return ordered
 
 
 def optimize_slot_assignment(
@@ -205,16 +289,11 @@ def optimize_slot_assignment(
     tee_times: Sequence[str],
     tee_time_counts: Dict[Player, Dict[str, int]],
 ) -> List[Tuple[str, str, Group]]:
-    """
-    Assigns actual tee times to the pre-ordered groups while respecting the
-    women's placement pattern. This means we optimize *within* the chosen
-    time slots rather than ignoring the requested pattern.
-    """
-    if len(ordered_groups) != len(tee_times):
-        raise ValueError("Number of groups must match number of tee times.")
+    if len(ordered_groups) > len(tee_times):
+        raise ValueError(
+            f"Not enough tee times. Need {len(ordered_groups)}, got {len(tee_times)}."
+        )
 
-    # Group positions are fixed by placement mode.
-    # We only optimize mapping by evaluating each fixed slot.
     result: List[Tuple[str, str, Group]] = []
     for idx, (division, group) in enumerate(ordered_groups):
         time_str = tee_times[idx]
@@ -232,10 +311,6 @@ def weekly_local_improvement(
     expected_pairs_set_women: set[Pair],
     max_passes: int = 20,
 ) -> List[Tuple[str, str, Group]]:
-    """
-    Improve tee-time fairness by swapping same-division groups only,
-    so women/men placement rules remain intact.
-    """
     current = assignments[:]
 
     def total_cost(schedule: List[Tuple[str, str, Group]]) -> int:
@@ -291,12 +366,90 @@ def update_tracking(
             tee_time_counts[player][time_str] = tee_time_counts[player].get(time_str, 0) + 1
 
 
-def generate_schedule(
+def score_season(season, men_players, women_players):
+
+    pair_counts = {}
+    group_counts = {}
+    tee_counts = {}
+
+    players = list(men_players) + list(women_players)
+
+    for p in players:
+        tee_counts[p] = {}
+
+    for week in season:
+        for slot in week.slots:
+
+            group = slot["group"]
+            time = slot["time"]
+
+            #
+            # track tee times
+            #
+
+            for p in group:
+                tee_counts[p][time] = tee_counts[p].get(time,0) + 1
+
+            #
+            # track groups
+            #
+
+            sig = tuple(sorted(group))
+            group_counts[sig] = group_counts.get(sig,0) + 1
+
+            #
+            # track pairs
+            #
+
+            for a,b in combinations(group,2):
+                pair = tuple(sorted((a,b)))
+                pair_counts[pair] = pair_counts.get(pair,0) + 1
+
+    score = 0
+
+    #
+    # penalize repeated pairs
+    #
+
+    for count in pair_counts.values():
+        if count > 1:
+            score += (count-1) * 40
+
+    #
+    # penalize repeated foursomes
+    #
+
+    for count in group_counts.values():
+        if count > 1:
+            score += (count-1) * 200
+
+    #
+    # penalize tee time imbalance
+    #
+
+    for player,times in tee_counts.items():
+
+        if not times:
+            continue
+
+        counts = list(times.values())
+
+        max_time = max(counts)
+        min_time = min(counts)
+
+        imbalance = max_time - min_time
+
+        score += imbalance * 25
+
+    return score
+
+def _generate_schedule_once(
     men_players: Sequence[Player],
     women_players: Sequence[Player],
     start_date: date,
     end_date: date,
-    tee_times: Sequence[str],
+    first_tee_time: str,
+    weekdays: List[int],
     placement_mode: PlacementMode = "mixed_alternating",
     men_group_tries: int = 4000,
     women_group_tries: int = 1500,
@@ -304,14 +457,13 @@ def generate_schedule(
 ) -> List[WeekSchedule]:
     random.seed(seed)
 
-    dates = daterange_wednesdays(start_date, end_date)
+    dates = generate_play_dates(start_date, end_date, weekdays)
 
-    if len(men_players) != 16:
-        raise ValueError("This version currently expects exactly 16 men.")
-    if len(women_players) != 8:
-        raise ValueError("This version currently expects exactly 8 women.")
-    if len(tee_times) != 6:
-        raise ValueError("This version currently expects exactly 6 tee times.")
+    men_group_sizes = group_sizes_for_count(len(men_players))
+    women_group_sizes = group_sizes_for_count(len(women_players))
+    total_groups = len(men_group_sizes) + len(women_group_sizes)
+
+    tee_times = generate_tee_times(first_tee_time, total_groups)
 
     pair_counts: Dict[Pair, int] = {}
     group_counts: Dict[Tuple[Player, ...], int] = {}
@@ -325,8 +477,7 @@ def generate_schedule(
     for week_num, play_date in enumerate(dates, start=1):
         men_groups = optimize_groups(
             players=men_players,
-            group_count=4,
-            group_size=4,
+            group_sizes=men_group_sizes,
             pair_counts=pair_counts,
             group_counts=group_counts,
             expected_pairs_set=expected_pairs_men,
@@ -335,8 +486,7 @@ def generate_schedule(
 
         women_groups = optimize_groups(
             players=women_players,
-            group_count=2,
-            group_size=4,
+            group_sizes=women_group_sizes,
             pair_counts=pair_counts,
             group_counts=group_counts,
             expected_pairs_set=expected_pairs_women,
@@ -347,6 +497,7 @@ def generate_schedule(
             men_groups=men_groups,
             women_groups=women_groups,
             placement_mode=placement_mode,
+            week_num=week_num,
         )
 
         assignments = optimize_slot_assignment(
@@ -392,6 +543,40 @@ def generate_schedule(
 
     return season
 
+def generate_schedule(
+    men_players,
+    women_players,
+    start_date,
+    end_date,
+    first_tee_time,
+    weekdays,
+    placement_mode="mixed_alternating",
+    tries=5
+):
+
+    best_season = None
+    best_score = None
+
+    for i in range(tries):
+
+        season = _generate_schedule_once(
+            men_players=men_players,
+            women_players=women_players,
+            start_date=start_date,
+            end_date=end_date,
+            first_tee_time=first_tee_time,
+            weekdays=weekdays,
+            placement_mode=placement_mode,
+            seed=random.randint(1,1000000)
+        )
+
+        score = score_season(season, men_players, women_players)
+
+        if best_score is None or score < best_score:
+            best_score = score
+            best_season = season
+
+    return best_season
 
 def summarize_schedule(
     season: Sequence[WeekSchedule],
@@ -401,6 +586,8 @@ def summarize_schedule(
     pair_counts: Dict[Pair, int] = {}
     tee_time_counts: DefaultDict[Player, Dict[str, int]] = defaultdict(dict)
     group_counts: Dict[Tuple[Player, ...], int] = {}
+
+    tee_times = [str(slot["time"]) for slot in season[0].slots] if season else []
 
     for week in season:
         for slot in week.slots:
@@ -418,6 +605,15 @@ def summarize_schedule(
 
     def coverage(players: Sequence[Player]) -> Dict[str, object]:
         expected: List[Pair] = all_expected_pairs(players)
+        if not expected:
+            return {
+                "unique_pairs_total": 0,
+                "unique_pairs_seen": 0,
+                "coverage_pct": 100.0,
+                "unseen_pairs": [],
+                "max_pair_repeat": 0,
+            }
+
         unseen = [p for p in expected if pair_counts.get(p, 0) == 0]
         return {
             "unique_pairs_total": len(expected),
@@ -429,11 +625,11 @@ def summarize_schedule(
 
     def tee_summary(players: Sequence[Player]) -> Dict[str, Dict[str, int]]:
         return {
-            player: {time: tee_time_counts[player].get(time, 0) for time in TEE_TIMES}
+            player: {time: tee_time_counts[player].get(time, 0) for time in tee_times}
             for player in players
         }
 
-    repeat_foursomes = {
+    repeat_groups = {
         "-".join(sig): count for sig, count in group_counts.items() if count > 1
     }
 
@@ -445,7 +641,7 @@ def summarize_schedule(
             "men": tee_summary(men_players),
             "women": tee_summary(women_players),
         },
-        "repeat_foursomes": repeat_foursomes,
+        "repeat_groups": repeat_groups,
     }
 
 
@@ -512,8 +708,8 @@ if __name__ == "__main__":
         women_players=women,
         start_date=date(2026, 4, 1),
         end_date=date(2026, 9, 16),
-        tee_times=TEE_TIMES,
-        placement_mode="mixed_alternating",  # change this here
+        first_tee_time="16:28",
+        placement_mode="mixed_alternating",
         men_group_tries=4000,
         women_group_tries=1500,
         seed=42,

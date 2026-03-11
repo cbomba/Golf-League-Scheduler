@@ -1,60 +1,112 @@
 <html>
+<head>
+<title>Golf League Scheduler</title>
+<style>
 
+table{
+border-collapse:collapse;
+font-size:14px;
+}
+
+th,td{
+border:1px solid #999;
+padding:4px 6px;
+}
+
+#schedule{
+overflow-x:auto;
+}
+
+</style>
+</head>
+<body>
 <h1>Golf League Scheduler</h1>
 
-<h3>League Setup</h3>
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:40px;">
 
-<label>
-<input type="checkbox" id="menCheck"> Men League
-</label>
+  <div style="flex:3;">
 
-<input type="number" id="menCount" placeholder="Number of men" min="4">
+    <h3>League Setup</h3>
 
-<br><br>
+    <label>
+    <input type="checkbox" id="menCheck"> Men's League
+    </label>
 
-<label>
-<input type="checkbox" id="womenCheck"> Women League
-</label>
+    <input type="number" id="menCount" placeholder="Number of men" min="4">
 
-<input type="number" id="womenCount" placeholder="Number of women" min="4">
+    <br><br>
 
-<br><br>
+    <label>
+    <input type="checkbox" id="womenCheck"> Women's League
+    </label>
 
-Start Time  
-<input type="time" id="startTime">
+    <input type="number" id="womenCount" placeholder="Number of women" min="4">
 
-<br><br>
+    <br><br>
 
-Last Tee Time  
-<input type="time" id="endTime">
+    <label>League Start Date</label>
+    <input type="date" id="leagueStartDate">
 
-<br><br>
+    <label>League End Date</label>
+    <input type="date" id="leagueEndDate">
 
-Group Order
+    <label>First Tee Time</label>
+    <input type="time" id="startTime" value="16:28">
 
-<select id="placement">
+    <br><br>
 
-<option value="mixed_alternating">Mixed</option>
-<option value="women_first">Women First</option>
-<option value="women_last">Women Last</option>
+    <h4 style="margin:0 0 8px 0;">Days Played</h4>
 
-</select>
+    <label><input type="checkbox" value="mon" class="dow"> Mon</label>
+    <label><input type="checkbox" value="tue" class="dow"> Tue</label>
+    <label><input type="checkbox" value="wed" class="dow" checked> Wed</label>
+    <label><input type="checkbox" value="thu" class="dow"> Thu</label>
+    <label><input type="checkbox" value="fri" class="dow"> Fri</label>
+    <label><input type="checkbox" value="sat" class="dow"> Sat</label>
+    <label><input type="checkbox" value="sun" class="dow"> Sun</label>
 
-<br><br>
+    <br><br>
 
-<button onclick="generate()">Generate Schedule</button>
+    Group Order
+
+    <select id="placement">
+      <option value="mixed_alternating">Mixed</option>
+      <option value="women_first">Women First</option>
+      <option value="women_last">Women Last</option>
+    </select>
+
+    <br><br>
+
+    <button onclick="generate()">Generate Schedule</button>
+    <button onclick="exportExcel()">Export to Excel</button>
+
+  </div>
+
+  <div id="leagueStats" style="flex:1; min-width:260px; border:1px solid #ccc; padding:12px; border-radius:8px; background:#fafafa;">
+    <h3 style="margin-top:0;">League Stats</h3>
+    <div id="leagueStatsContent">
+      Generate a schedule to see stats.
+    </div>
+  </div>
+
+</div>
 
 <hr>
 
-<div style="display:flex;gap:40px">
+<div style="display:flex;gap:40px;margin-top:30px">
+
+<!-- COLUMN 1 : SCHEDULE -->
 
 <div style="flex:2">
 <div id="schedule"></div>
 </div>
 
+
+<!-- COLUMN 2 : PLAYER NAMES -->
+
 <div id="playerTools" style="flex:1; display:none">
 
-<h4>Paste Men Names</h4>
+<h3>Paste Men Names</h3>
 
 <textarea id="menPaste" rows="10" style="width:100%"
 placeholder="Paste men names here..."></textarea>
@@ -65,24 +117,31 @@ placeholder="Paste men names here..."></textarea>
 
 <br>
 
-<h4>Paste Women Names</h4>
+<h3>Paste Women Names</h3>
 
-<textarea id="womenPaste" rows="6" style="width:100%"
+<textarea id="womenPaste" rows="8" style="width:100%"
 placeholder="Paste women names here..."></textarea>
 
 <button onclick="applyWomenNames()">Apply Names</button>
 
 <div id="womenNames"></div>
 
-<br>
+</div>
+
+
+<!-- COLUMN 3 : PLAYER LOOKUP -->
+
+<div id="playerLookup" style="flex:1; display:none">
 
 <h3>Find Player</h3>
 
-<select id="playerSelect"></select>
+<select id="playerSelect" style="width:100%"></select>
 
 <br><br>
 
 <button onclick="lookupPlayer()">Show Schedule</button>
+
+<br><br>
 
 <div id="playerResults"></div>
 
@@ -91,17 +150,32 @@ placeholder="Paste women names here..."></textarea>
 </div>
 
 <script>
+function resetNames(){
+  playerMap = {}
+  document.getElementById("menPaste").value=""
+  document.getElementById("womenPaste").value=""
+  document.getElementById("menNames").innerHTML=""
+  document.getElementById("womenNames").innerHTML=""
+  document.getElementById("playerSelect").innerHTML=""
+  document.getElementById("playerResults").innerHTML=""
+  document.getElementById("leagueStatsContent").innerHTML = "Generate a schedule to see stats."
+
+}
+
 let playerMap = {}
 async function generate(){
-
+playerMap = {}
 const menEnabled=document.getElementById("menCheck").checked
 const womenEnabled=document.getElementById("womenCheck").checked
 
-const menCount=parseInt(document.getElementById("menCount").value)
-const womenCount=parseInt(document.getElementById("womenCount").value)
+const menCount=parseInt(document.getElementById("menCount").value)||0
+const womenCount=parseInt(document.getElementById("womenCount").value)||0
+
+const leagueStartDate=document.getElementById("leagueStartDate").value
+const leagueEndDate=document.getElementById("leagueEndDate").value
+const daysOfWeek=[...document.querySelectorAll(".dow:checked")].map(d=>d.value)
 
 const startTime=document.getElementById("startTime").value
-const endTime=document.getElementById("endTime").value
 
 const placement=document.getElementById("placement").value
 
@@ -110,41 +184,6 @@ const placement=document.getElementById("placement").value
 // VALIDATION
 //
 
-const start=new Date("1970-01-01T"+startTime+":00")
-const end=new Date("1970-01-01T"+endTime+":00")
-
-const diff=(end-start)/60000
-const slots=Math.floor(diff/8)+1
-
-const capacity=slots*4
-
-const totalPlayers=(menEnabled?menCount:0)+(womenEnabled?womenCount:0)
-
-if(totalPlayers>capacity){
-
-alert(`Too many players for available tee times.
-
-Slots available: ${slots}
-Max players: ${capacity}
-Players entered: ${totalPlayers}`)
-
-return
-}
-
-//
-// check valid group math
-//
-
-if(totalPlayers % 4 === 1 || totalPlayers % 4 === 3){
-
-alert(`Player count cannot be scheduled.
-
-${totalPlayers} players cannot be evenly arranged.
-
-Valid totals must leave remainder 0 or 2 when divided by 4.`)
-
-return
-}
 
 const response = await fetch("/generate",{
 method:"POST",
@@ -154,9 +193,11 @@ menEnabled,
 womenEnabled,
 menCount,
 womenCount,
+leagueStartDate,
+leagueEndDate,
 startTime,
-endTime,
-placement
+placement,
+daysOfWeek
 })
 })
 
@@ -168,8 +209,10 @@ if (data.error) {
 }
 
 window.currentSchedule=data.season
+renderLeagueStats(data, menCount, womenCount)
 
 document.getElementById("playerTools").style.display="block"
+document.getElementById("playerLookup").style.display="block"
 
 createNameFields(menCount,womenCount)
 populatePlayerDropdown(menCount,womenCount)
@@ -205,13 +248,26 @@ week.slots.forEach(slot=>{
 
 const g=slot.group
 
-const p1 = playerMap[g[0]] || g[0]
-const p2 = playerMap[g[1]] || g[1]
-const p3 = playerMap[g[2]] || g[2]
-const p4 = playerMap[g[3]] || g[3]
+const players = g.map(p => playerMap[p] || p)
 
-html+=`<td>${p1} - ${p2}</td>`
-html+=`<td>${p3} - ${p4}</td>`
+if(players.length === 4){
+html+=`<td>${players[0]} - ${players[1]}</td>`
+html+=`<td>${players[2]} - ${players[3]}</td>`
+}
+
+else if(players.length === 3){
+html+=`<td>${players[0]} - ${players[1]}</td>`
+html+=`<td>${players[2]}</td>`
+}
+
+else if(players.length === 2){
+html+=`<td>${players[0]}</td>`
+html+=`<td>${players[1]}</td>`
+}
+
+else{
+html+=`<td colspan="2">${players.join(" - ")}</td>`
+}
 
 })
 
@@ -226,146 +282,175 @@ document.getElementById("schedule").innerHTML=html
 }
 
 function createNameFields(menCount,womenCount){
-
-let menHTML="<h4>Men</h4>"
-
-for(let i=1;i<=menCount;i++){
-menHTML+=`${i} <input id="m${i}" placeholder="Name"><br>`
-}
-
-document.getElementById("menNames").innerHTML=menHTML
-
-
-let womenHTML="<h4>Women</h4>"
-
-for(let i=0;i<womenCount;i++){
-
-const letter=String.fromCharCode(65+i)
-
-womenHTML+=`${letter} <input id="w${letter}" placeholder="Name"><br>`
-}
-
-document.getElementById("womenNames").innerHTML=womenHTML
-}
+  let menHTML="<h4>Men</h4>"
+  for(let i=1;i<=menCount;i++){
+  menHTML+=`${i} <input id="m${i}" placeholder="Name"><br>`
+  }
+  document.getElementById("menNames").innerHTML=menHTML
+  let womenHTML="<h4>Women</h4>"
+  for(let i=0;i<womenCount;i++){
+  const letter=String.fromCharCode(65+i)
+  womenHTML+=`${letter} <input id="w${letter}" placeholder="Name"><br>`
+  }
+  document.getElementById("womenNames").innerHTML=womenHTML
+  }
 
 function populatePlayerDropdown(menCount,womenCount){
-
-let html=""
-
-for(let i=1;i<=menCount;i++){
-html+=`<option value="${i}">${i}</option>`
-}
-
-for(let i=0;i<womenCount;i++){
-
-const letter=String.fromCharCode(65+i)
-
-html+=`<option value="${letter}">${letter}</option>`
-}
-
-document.getElementById("playerSelect").innerHTML=html
-}
+  let html=""
+  for(let i=1;i<=menCount;i++){
+  const name = playerMap[i] || i
+  html+=`<option value="${i}">${name}</option>`
+  }
+  for(let i=0;i<womenCount;i++){
+  const letter=String.fromCharCode(65+i)
+  const name = playerMap[letter] || letter
+  html+=`<option value="${letter}">${name}</option>`
+  }
+  document.getElementById("playerSelect").innerHTML=html
+  }
 
 function lookupPlayer(){
+  const player=document.getElementById("playerSelect").value
+  let results="<h3>Week Schedule</h3>"
+  let partnerCounts={}
+  window.currentSchedule.forEach(week=>{
+  week.slots.forEach(slot=>{
+  const g=slot.group
+  if(g.includes(player)){
 
-const player=document.getElementById("playerSelect").value
-const partnerName = playerMap[partner] || partner
-const otherNames = others.map(o => playerMap[o] || o)
+  const others = g.filter(p => p !== player)
 
-let results="<h3>Schedule</h3>"
+  let partner = others[0] || null
+  let foursome = others.slice(1)
 
-window.currentSchedule.forEach(week=>{
+  const partnerName = partner ? (playerMap[partner] || partner) : "None"
+  const otherNames = foursome.map(o => playerMap[o] || o)
 
-week.slots.forEach(slot=>{
+  results+=`
+  ${week.play_date} - ${slot.time}<br>
+  Ride With: ${partnerName}<br>
+  Foursome: ${otherNames.join(", ")}<br><br>
+  `
+  // track partner frequency
+  g.forEach(p=>{
+  if(p!==player){
+  partnerCounts[p]=(partnerCounts[p]||0)+1
+  }
+  })
+  }
+  })
+  })
 
-const g=slot.group
+  //
+  // Season summary
+  //
 
-if(g.includes(player)){
+  results+="<h3>Played With</h3>"
+  const sortedPartners = Object.entries(partnerCounts)
+  .sort((a,b)=>b[1]-a[1])
+  sortedPartners.forEach(([p,count])=>{
+  const name = playerMap[p] || p
+  results+=`${name} — ${count} times<br>`
+  })
+  document.getElementById("playerResults").innerHTML=results
+  }
 
-let partner=""
-let others=[]
+function applyMenNames(){
+  const text=document.getElementById("menPaste").value
+  const names=text.split("\n").map(n=>n.trim()).filter(n=>n!="")
+  const menCount=parseInt(document.getElementById("menCount").value)
+  if(names.length<menCount){
+  alert(`You pasted ${names.length} names but ${menCount} men are required.`)
+  }
+  names.forEach((name,i)=>{
+  const id = (i+1).toString()
+  const field=document.getElementById("m"+id)
+  if(field){
+  field.value=name
+  }
+  playerMap[id]=name
+  })
+  }
 
-if(g[0]===player) partner=g[1]
-if(g[1]===player) partner=g[0]
-if(g[2]===player) partner=g[3]
-if(g[3]===player) partner=g[2]
+function applyWomenNames(){
+  const text=document.getElementById("womenPaste").value
+  const names=text.split("\n").map(n=>n.trim()).filter(n=>n!="")
+  const womenCount=parseInt(document.getElementById("womenCount").value)
+  if(names.length<womenCount){
+  alert(`You pasted ${names.length} names but ${womenCount} women are required.`)
+  }
+  names.forEach((name,i)=>{
+  const letter=String.fromCharCode(65+i)
+  const field=document.getElementById("w"+letter)
+  if(field){
+  field.value=name
+  }
+  playerMap[letter]=name
+  })
+  }
 
-others=g.filter(p=>p!==player && p!==partner)
+async function exportExcel(){
 
-results+=`
-${week.play_date} - ${slot.time}<br>
-Ride With: ${partnerName}<br>
-Foursome: ${otherNames.join(",")}
+  if(!window.currentSchedule){
+  alert("Generate a schedule first.")
+  return
+  }
+
+  const menCount=parseInt(document.getElementById("menCount").value)||0
+  const womenCount=parseInt(document.getElementById("womenCount").value)||0
+
+  const payload={
+  season:window.currentSchedule,
+  playerMap:playerMap,
+  menCount,
+  womenCount
+  }
+
+  const response = await fetch("/export",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify(payload)
+  })
+
+  const blob = await response.blob()
+
+  const url = window.URL.createObjectURL(blob)
+
+  const a = document.createElement("a")
+  a.href=url
+  a.download="golf_league_schedule.xlsx"
+
+  document.body.appendChild(a)
+  a.click()
+
+  a.remove()
+
+  }
+
+function renderLeagueStats(data, menCount, womenCount){
+
+const totalGolfers = (menCount || 0) + (womenCount || 0)
+const totalRounds = data.season.length
+const teeTimesPerRound = data.season.length > 0 ? data.season[0].slots.length : 0
+
+const menCoverage = data.summary?.men_coverage?.coverage_pct ?? "-"
+const womenCoverage = data.summary?.women_coverage?.coverage_pct ?? "-"
+
+document.getElementById("leagueStatsContent").innerHTML = `
+  <div><strong>Total Golfers:</strong> ${totalGolfers}</div>
+  <div><strong>Total Rounds:</strong> ${totalRounds}</div>
+  <div><strong>Tee Times / Round:</strong> ${teeTimesPerRound}</div>
+  <div><strong>Men Pair Coverage:</strong> ${menCoverage}%</div>
+  <div><strong>Women Pair Coverage:</strong> ${womenCoverage}%</div>
 `
 }
 
-})
 
-})
+document.getElementById("menCount").addEventListener("change", resetNames)
+document.getElementById("womenCount").addEventListener("change", resetNames)
 
-document.getElementById("playerResults").innerHTML=results
-}
-
-function applyMenNames(){
-
-const text=document.getElementById("menPaste").value
-
-const names=text.split("\n").map(n=>n.trim()).filter(n=>n!="")
-
-const menCount=parseInt(document.getElementById("menCount").value)
-
-if(names.length<menCount){
-
-alert(`You pasted ${names.length} names but ${menCount} men are required.`)
-
-}
-
-names.forEach((name,i)=>{
-
-const id = (i+1).toString()
-
-const field=document.getElementById("m"+id)
-
-if(field){
-field.value=name
-}
-
-playerMap[id]=name
-
-})
-
-}
-
-function applyWomenNames(){
-
-const text=document.getElementById("womenPaste").value
-
-const names=text.split("\n").map(n=>n.trim()).filter(n=>n!="")
-
-const womenCount=parseInt(document.getElementById("womenCount").value)
-
-if(names.length<womenCount){
-
-alert(`You pasted ${names.length} names but ${womenCount} women are required.`)
-
-}
-
-names.forEach((name,i)=>{
-
-const letter=String.fromCharCode(65+i)
-
-const field=document.getElementById("w"+letter)
-
-if(field){
-field.value=name
-}
-
-playerMap[letter]=name
-
-})
-
-}
-
+document.getElementById("menCheck").addEventListener("change", resetNames)
+document.getElementById("womenCheck").addEventListener("change", resetNames)
 </script>
-
+</body>
 </html>
