@@ -1,0 +1,22 @@
+<h1>{{ data.playerMap[player] }} - 2026 Schedule</h1>
+
+<table border="1">
+<tr>
+<th>Date</th>
+<th>Time</th>
+<th>Group</th>
+</tr>
+
+{% for r in results %}
+<tr>
+<td>{{ r.date }}</td>
+<td>{{ r.time }}</td>
+<td>
+{{ data.playerMap[r.group[0]] }}<br>
+{{ data.playerMap[r.group[1]] }}<br>
+{{ data.playerMap[r.group[2]] }}<br>
+{{ data.playerMap[r.group[3]] }}
+</td>
+</tr>
+{% endfor %}
+</table>

@@ -3,9 +3,14 @@ from scheduler import generate_schedule, summarize_schedule
 from datetime import datetime, date, timedelta
 import openpyxl
 from io import BytesIO
+import os
+import json
 
 app = Flask(__name__)
 
+SCHEDULE_DIR = os.path.join(os.path.dirname(__file__), "schedules")
+
+os.makedirs(SCHEDULE_DIR, exist_ok=True)
 
 @app.route("/")
 def home():
@@ -182,6 +187,67 @@ def export_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+@app.route("/snapshot", methods=["POST"])
+def snapshot_schedule():
+
+    data = request.json
+
+    league_name = data["league_name"].lower().replace(" ", "-")
+    year = data["year"]
+
+    slug = f"{league_name}-{year}"
+
+    path = os.path.join(SCHEDULE_DIR, slug + ".json")
+
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+    return {
+        "link": f"schedules/{slug}"
+    }
+
+@app.route("/schedules/<slug>")
+def view_schedule(slug):
+
+    path = os.path.join(SCHEDULE_DIR, slug + ".json")
+
+    if not os.path.exists(path):
+        return "Schedule not found", 404
+
+    with open(path) as f:
+        data = json.load(f)
+
+    return render_template(
+        "schedule_view.html",
+        data=data
+    )
+
+@app.route("/schedules/<slug>/player/<player_id>")
+def player_schedule(slug, player_id):
+
+    path = os.path.join(SCHEDULE_DIR, slug + ".json")
+
+    with open(path) as f:
+        data = json.load(f)
+
+    results = []
+
+    for week in data["season"]:
+        for slot in week["slots"]:
+            if player_id in slot["group"]:
+
+                results.append({
+                    "date": week["play_date"],
+                    "time": slot["time"],
+                    "group": slot["group"]
+                })
+
+    return render_template(
+        "player_schedule.html",
+        data=data,
+        player=player_id,
+        results=results
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)

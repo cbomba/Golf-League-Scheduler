@@ -1,0 +1,40 @@
+<html>
+<head>
+<title>League Schedule</title>
+</head>
+
+<body>
+
+<h1>{{ data.league_name }} - {{ data.year }}</h1>
+<br><br>
+<h3>Player Schedules</h3>
+
+{% for id,name in data.playerMap.items() %}
+<a href="/golf/schedule/{{ slug }}/player/{{ id }}">{{ name }}</a><br>
+{% endfor %}
+<table border="1">
+
+<tr>
+<th>Date</th>
+{% for slot in data.season[0].slots %}
+<th>{{ slot.time }}</th>
+<th>{{ slot.time }}</th>
+{% endfor %}
+</tr>
+
+{% for week in data.season %}
+<tr>
+<td>{{ week.play_date }}</td>
+
+{% for slot in week.slots %}
+<td>{{ slot.group[0] }} - {{ slot.group[1] }}</td>
+<td>{{ slot.group[2] }} - {{ slot.group[3] }}</td>
+{% endfor %}
+
+</tr>
+{% endfor %}
+
+</table>
+
+</body>
+</html>

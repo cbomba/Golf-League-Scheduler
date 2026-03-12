@@ -79,6 +79,7 @@ overflow-x:auto;
 
     <button onclick="generate()">Generate Schedule</button>
     <button onclick="exportExcel()">Export to Excel</button>
+    <button onclick="saveSchedule()">Save & Share</button>
 
   </div>
 
@@ -146,6 +147,20 @@ placeholder="Paste women names here..."></textarea>
 <div id="playerResults"></div>
 
 </div>
+
+</div>
+
+<div id="shareBox" style="display:none; margin-top:20px; padding:10px; border:1px solid #ccc;">
+    
+    <strong>Share this schedule:</strong><br><br>
+
+    <input id="shareLink" style="width:70%; padding:5px;" readonly>
+
+    <button onclick="copyLink()">Copy Link</button>
+
+    <button onclick="window.open(document.getElementById('shareLink').value,'_blank')">
+        Open
+    </button>
 
 </div>
 
@@ -443,6 +458,50 @@ document.getElementById("leagueStatsContent").innerHTML = `
   <div><strong>Men Pair Coverage:</strong> ${menCoverage}%</div>
   <div><strong>Women Pair Coverage:</strong> ${womenCoverage}%</div>
 `
+}
+
+async function saveSchedule(){
+
+if(!window.currentSchedule){
+alert("Generate a schedule first.")
+return
+}
+
+const league = prompt("League name")
+const year = prompt("Year")
+
+const payload={
+league_name:league,
+year:year,
+season:window.currentSchedule,
+playerMap:playerMap
+}
+
+const response = await fetch("/snapshot",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(payload)
+})
+
+const data = await response.json()
+
+const link = window.location.origin + "/" + data.link
+
+document.getElementById("shareLink").value = link
+document.getElementById("shareBox").style.display = "block"
+
+}
+
+function copyLink(){
+
+const link=document.getElementById("shareLink")
+
+link.select()
+link.setSelectionRange(0,99999)
+
+navigator.clipboard.writeText(link.value)
+
+alert("Link copied!")
 }
 
 
